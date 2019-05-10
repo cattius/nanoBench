@@ -1,13 +1,11 @@
-.PHONY: user kernel
+all: clean nanobenchFork
 
-all: user kernel
-
-user:
-	$(MAKE) -C user/
-
-kernel:
-	cd kernel; $(MAKE)
+nanobenchFork:
+	gcc -o nanobenchFork usingNanobench.c nanoBenchCat.c common/nanoBench.c
+	gcc -fPIC -shared -o nanobench.so nanoBenchCat.c common/nanoBench.c
 
 clean:
-	$(MAKE) -C user/ clean
-	cd kernel; $(MAKE) clean
+	rm -f nanobenchFork
+	rm -f nanobench.so
+
+

@@ -77,7 +77,7 @@ extern long n_measurements;
 
 // How often the code to be measured will be unrolled.
 extern long unroll_count;
-#define UNROLL_COUNT_DEFAULT 1000;
+#define UNROLL_COUNT_DEFAULT 10000;
 
 // Number of iterations of the inner loop. Setting this to 0 will disable the inner loop; the code to be measured is then executed unroll_count many times.
 extern long loop_count;
@@ -89,7 +89,7 @@ extern long warm_up_count;
 
 // Number of executions of the measurement code before the first measurement.
 extern long initial_warm_up_count;
-#define INITIAL_WARM_UP_COUNT_DEFAULT 0;
+#define INITIAL_WARM_UP_COUNT_DEFAULT 5;
 
 // If enabled, the temporary performance counter values are stored in registers instead of in memory;
 // the code to be measured must then not use registers R8-R13
@@ -148,6 +148,7 @@ extern int n_programmable_counters;
 
 // Pointer to a memory region that is writable and executable.
 extern char* runtime_code;
+extern char* cleanup_code;
 
 #define RUNTIME_R_SIZE (1024*1024)
 

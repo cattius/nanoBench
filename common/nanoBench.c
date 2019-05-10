@@ -10,6 +10,9 @@
 // You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "nanoBench.h"
+#include <setjmp.h>
+
+extern sigjmp_buf buf;
 
 long n_measurements = N_MEASUREMENTS_DEFAULT;
 long unroll_count = UNROLL_COUNT_DEFAULT;
@@ -40,6 +43,7 @@ int is_AMD_CPU = 0;
 int n_programmable_counters;
 
 char* runtime_code;
+char* cleanup_code;
 void* runtime_r14;
 void* runtime_rbp;
 void* runtime_rdi;
@@ -342,6 +346,8 @@ void configure_perf_ctrs_programmable(int start, int end, unsigned int usr, unsi
 void create_runtime_code(char* measurement_template, long local_unroll_count, long local_loop_count) {
     int templateI = 0;
     int rci = 0;
+    int cleanupI = 0;
+    int tempI = 0;
 
     while (!starts_with_magic_bytes(&measurement_template[templateI], MAGIC_BYTES_TEMPLATE_END)) {
         if (starts_with_magic_bytes(&measurement_template[templateI], MAGIC_BYTES_INIT)) {
@@ -357,6 +363,9 @@ void create_runtime_code(char* measurement_template, long local_unroll_count, lo
                     rci += code_length;
                 }
             } else {
+		//I have never seen this run yet, so it isn't included in cleanup_code
+		printf("ALERT: the else clause ran\n");
+
                 runtime_code[rci++] = '\x49'; runtime_code[rci++] = '\xC7'; runtime_code[rci++] = '\xC7';
                 *(int32_t*)(&runtime_code[rci]) = (int32_t)local_loop_count; rci += 4; // mov R15, local_loop_count
                 int rci_loop_start = rci;
@@ -371,8 +380,10 @@ void create_runtime_code(char* measurement_template, long local_unroll_count, lo
                 *(int32_t*)(&runtime_code[rci]) = (int32_t)(rci_loop_start-rci-4); rci += 4; // jnz loop_start
             }
 
+	    cleanupI = rci;
             if (debug) {
                 runtime_code[rci++] = '\xCC'; // INT3
+		cleanup_code[tempI++] = '\xCC';
             }
         } else if (starts_with_magic_bytes(&measurement_template[templateI], MAGIC_BYTES_PFC)) {
             *(void**)(&runtime_code[rci]) = pfc_mem;
@@ -383,7 +394,7 @@ void create_runtime_code(char* measurement_template, long local_unroll_count, lo
             templateI += 8;
             rci += 8;
         } else if (starts_with_magic_bytes(&measurement_template[templateI], MAGIC_BYTES_RUNTIME_R14)) {
-            *(void**)(&runtime_code[rci]) = runtime_r14 + RUNTIME_R_SIZE/2;
+	    *(void**)(&runtime_code[rci]) = runtime_r14 + RUNTIME_R_SIZE/2;
             templateI += 8;
             rci += 8;
         } else if (starts_with_magic_bytes(&measurement_template[templateI], MAGIC_BYTES_RUNTIME_RBP)) {
@@ -410,7 +421,12 @@ void create_runtime_code(char* measurement_template, long local_unroll_count, lo
     templateI += 8;
     do {
         runtime_code[rci++] = measurement_template[templateI++];
-    } while (measurement_template[templateI-1] != '\xC3'); // 0xC3 = ret
+    } while (measurement_template[templateI-1] != '\xC3'); // 0xC3 = ret. this does NOT need the below 3-byte pattern treatment
+
+    //setup cleanup code. this stops the perf counters if we have jumped out of the runtime code due to an exception (otherwise they don't stop, overflow, and we get negative values). the signal handler / sigsetjmp overhead is included in the counts.
+    do{
+	cleanup_code[tempI++] = runtime_code[cleanupI++];
+    } while ( !(runtime_code[cleanupI-3] == '\x90' && runtime_code[cleanupI-2] == '\x5d' && runtime_code[cleanupI-1] == '\xc3') ); //can't just stop on c3 because it's often an operand byte rather than just ret. instead we look for the 3-byte 90 5d c3 pattern which appears at the end of all the templates, including the AMD ones - although haven't been able to test these, they crash on Intel.
 }
 
 void run_warmup_experiment(char* measurement_template) {
@@ -419,7 +435,10 @@ void run_warmup_experiment(char* measurement_template) {
     create_runtime_code(measurement_template, unroll_count, loop_count);
 
     for (int i=0; i<initial_warm_up_count; i++) {
-        ((void(*)(void))runtime_code)();
+	if(!sigsetjmp(buf, 1)){
+        	((void(*)(void))runtime_code)();
+	}
+	else ((void(*)(void))cleanup_code)(); 
     }
 }
 
@@ -433,13 +452,17 @@ void run_experiment(char* measurement_template, int64_t* results[], int n_counte
     #endif
 
     for (long ri=-warm_up_count; ri<n_measurements; ri++) {
-        ((void(*)(void))runtime_code)();
-
+	if(!sigsetjmp (buf, 1)){
+		((void(*)(void))runtime_code)();
+	}
+	else ((void(*)(void))cleanup_code)();
         // ignore "warm-up" runs (ri<0), but don't execute different branches
         long ri_ = (ri>=0)?ri:0;
         for (int c=0; c<n_counters; c++) {
                 results[c][ri_] = pfc_mem[c];
+		//printf("%" PRId64 " ", pfc_mem[c]);
         }
+	//printf("\n");
     }
 
     #ifdef __KERNEL__
@@ -459,7 +482,7 @@ char* compute_result_str(char* buf, size_t buf_len, char* desc, int counter) {
 
     int64_t result = ((agg-agg_base) + n_rep/2)/n_rep;
 
-    snprintf(buf, buf_len, "%s: %s%lld.%.2lld\n", desc, (result<0?"-":""), ll_abs(result/100), ll_abs(result)%100);
+    snprintf(buf, buf_len, "%s: %s%lld.%.2lld\n", desc, (result<0?"-":""), ll_abs(result/100), ll_abs(result)%100);  //divides by 100 as we are working with aggregate value from previous function (NOT n independent measurements summed)
     return buf;
 }
 
