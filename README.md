@@ -34,6 +34,14 @@ sudo ./run.sh
 Counter measurements will be output to the console along with where relevant the signal number (if the instruction causes an exception). Note that if an instruction causes an exception measurements include the overhead of OS-level and user-level exception handling.
 
 
+For more complex tasks, NanoBench can be used as a shared library. testOpcodeFile.py demonstrates how the shared library can be called from Python to read in a list of instructions from a file and benchmark them. To use this file, first edit runPython.sh to replace 'yourInputFileName' with the filepath of a list of instructions to benchmark in hex. The expected input format is 'opcode length', with one pair of values per line.
+
+```
+make
+sudo ./runPython.sh
+```
+
+
 ## Performance Counter Config Files
 
 Performance counter configuration files for most recent Intel and AMD CPUs are in the `configs` folder. These files can be adapted/reduced to the events you are interested in.

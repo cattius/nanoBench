@@ -28,7 +28,7 @@ iTCO_vendor_support_prev_loaded=$?
 prev_nmi_watchdog=$(cat /proc/sys/kernel/nmi_watchdog)
 echo 0 > /proc/sys/kernel/nmi_watchdog
 
-python testOpcodeFile.py ../../directedSearchOpcodeMapBlanks.txt
+python testOpcodeFile.py yourInputFileName
 
 echo $prev_rdpmc > /sys/bus/event_source/devices/cpu/rdpmc
 echo $prev_nmi_watchdog > /proc/sys/kernel/nmi_watchdog
